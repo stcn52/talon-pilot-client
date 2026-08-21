@@ -9,7 +9,7 @@ set -e
 
 RELEASE_BASE="${TP_AGENT_RELEASE_BASE:-https://x.xgit.pro/st52/agents}"
 RELEASE_API="${TP_AGENT_RELEASE_API:-https://x.xgit.pro/api/v1/repos/st52/agents}"
-API_BASE="${TP_API_BASE:-https://agents.xgit.pro}"
+API_BASE="${TP_API_BASE:-https://ai.xgit.pro}"
 WEB_BASE="${TP_WEB_BASE:-$API_BASE}"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
