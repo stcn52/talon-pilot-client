@@ -10,7 +10,8 @@ on:
         default: main
 
 permissions:
-  contents: write
+  code: read
+  releases: write
 
 jobs:
   build:
@@ -38,6 +39,8 @@ jobs:
     steps:
       - name: Checkout release repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Checkout st52 sources
         env:
@@ -141,6 +144,8 @@ jobs:
     steps:
       - name: Checkout release repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Resolve source ref
         id: source
