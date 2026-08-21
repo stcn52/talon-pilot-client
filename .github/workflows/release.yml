@@ -31,10 +31,6 @@ jobs:
             rust_target: x86_64-apple-darwin
             asset: macos-x64
             shim: false
-          - runner: windows-latest
-            rust_target: x86_64-pc-windows-msvc
-            asset: windows-x64
-            shim: false
     runs-on: ${{ matrix.runner }}
     defaults:
       run:
@@ -113,34 +109,24 @@ jobs:
               -Clink-arg=/tmp/glibc23-shim.o -Clink-arg=-Wl,--allow-multiple-definition
           done
 
-      - name: Build macOS and Windows binaries
+      - name: Build macOS binaries
         if: ${{ !matrix.shim }}
         run: |
           set -euo pipefail
           cd build/talon-pilot
-          if [ "${{ runner.os }}" = Windows ]; then
-            for bin in tp-agent tp; do
-              cargo rustc -p pilot-agent --release --target ${{ matrix.rust_target }} --bin "$bin" -- \
-                -Clink-arg=/FORCE:MULTIPLE
-            done
-          else
-            cargo build -p pilot-agent --release --target ${{ matrix.rust_target }} --bin tp-agent --bin tp
-          fi
+          cargo build -p pilot-agent --release --target ${{ matrix.rust_target }} --bin tp-agent --bin tp
 
       - name: Verify and package
         run: |
           set -euo pipefail
           out="build/talon-pilot/target/${{ matrix.rust_target }}/release"
           mkdir -p dist
-          if [ "${{ runner.os }}" = Windows ]; then
-            test -s "$out/tp-agent.exe" && test -s "$out/tp.exe"
-            7z a "dist/tp-agent-${{ matrix.asset }}.zip" "$out/tp-agent.exe" "$out/tp.exe"
-          else
-            test -s "$out/tp-agent" && test -s "$out/tp"
+          test -s "$out/tp-agent" && test -s "$out/tp"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             "$out/tp-agent" --version | grep -F "${GITHUB_REF_NAME#v}"
             "$out/tp" --version | grep -F "${GITHUB_REF_NAME#v}"
-            tar -czf "dist/tp-agent-${{ matrix.asset }}.tar.gz" -C "$out" tp-agent tp
           fi
+          tar -czf "dist/tp-agent-${{ matrix.asset }}.tar.gz" -C "$out" tp-agent tp
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -149,9 +135,123 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  build-windows:
+    name: build (windows-x64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout release repository
+        uses: actions/checkout@v4
+
+      - name: Resolve source ref
+        id: source
+        shell: pwsh
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $message = git for-each-ref "refs/tags/$env:GITHUB_REF_NAME" --format="%(contents)"
+            $match = [regex]::Match(($message -join "`n"), '(?m)^talon-pilot=([0-9a-f]{40})$')
+            if (-not $match.Success) {
+              throw "annotated tag must contain talon-pilot=<40-char SHA>"
+            }
+            $sourceRef = $match.Groups[1].Value
+          } else {
+            $sourceRef = if ([string]::IsNullOrWhiteSpace($env:SOURCE_REF)) { "main" } else { $env:SOURCE_REF }
+          }
+          "ref=$sourceRef" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Checkout st52 sources
+        shell: pwsh
+        env:
+          XGIT_TOKEN: ${{ secrets.XGIT_TOKEN }}
+          SOURCE_REF: ${{ steps.source.outputs.ref }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $auth = "https://oauth2:$env:XGIT_TOKEN@x.xgit.pro/st52"
+          git clone --filter=blob:none "$auth/talon-pilot.git" build/talon-pilot
+          git -C build/talon-pilot checkout --detach $env:SOURCE_REF
+          git clone --depth 1 "$auth/talon-bin.git" build/talon-bin
+          git clone --depth 1 "$auth/talon-sandbox-sdk-rust.git" build/talon-sandbox-sdk-rust
+          Remove-Item -Recurse -Force build/talon-bin/talon-bundle, build/talon-bin/talon-bundle-evocore -ErrorAction SilentlyContinue
+
+      - name: Verify release source and version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          SOURCE_REF: ${{ steps.source.outputs.ref }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cargoToml = Get-Content build/talon-pilot/Cargo.toml -Raw
+          $match = [regex]::Match($cargoToml, '(?ms)^\[workspace\.package\].*?^version\s*=\s*"([^"]+)"')
+          if (-not $match.Success) { throw "cannot read workspace version" }
+          $expected = $env:GITHUB_REF_NAME -replace '^v', ''
+          if ($match.Groups[1].Value -ne $expected) {
+            throw "tag $env:GITHUB_REF_NAME does not match workspace version $($match.Groups[1].Value)"
+          }
+          $head = (git -C build/talon-pilot rev-parse HEAD).Trim()
+          if ($head -ne $env:SOURCE_REF) { throw "build source does not match annotated tag SHA" }
+          $legacy = Select-String -Path build/talon-pilot/crates/pilot-edge/src/updater.rs `
+            -Pattern 'darkmice/talon-pilot-client|api\.github\.com/repos/darkmice'
+          if ($legacy) { throw "updater still contains legacy release source" }
+
+      - name: Rewrite sibling talon-sys path
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $path = "build/talon-pilot/crates/pilot-storage/Cargo.toml"
+          $content = Get-Content $path -Raw
+          $content = $content -replace 'path\s*=\s*"/Users/[^"]*/talon-bin/talon-sys"', 'path = "../../../talon-bin/talon-sys"'
+          Set-Content -Path $path -Value $content -Encoding utf8
+          Select-String -Path $path -Pattern 'talon-sys'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: build/talon-pilot
+
+      - name: Build Windows binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Push-Location build/talon-pilot
+          foreach ($bin in @("tp-agent", "tp")) {
+            cargo rustc -p pilot-agent --release --target x86_64-pc-windows-msvc --bin $bin -- -Clink-arg=/FORCE:MULTIPLE
+            if ($LASTEXITCODE -ne 0) { throw "cargo failed for $bin" }
+          }
+          Pop-Location
+
+      - name: Verify and package Windows artifact
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "build/talon-pilot/target/x86_64-pc-windows-msvc/release"
+          foreach ($bin in @("tp-agent.exe", "tp.exe")) {
+            if (-not (Test-Path "$out/$bin" -PathType Leaf)) { throw "missing $bin" }
+          }
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $expected = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ((& "$out/tp-agent.exe" --version).Trim() -ne $expected) { throw "tp-agent version mismatch" }
+            if ((& "$out/tp.exe" --version).Trim() -ne "tp $expected") { throw "tp version mismatch" }
+          }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "$out/tp-agent.exe", "$out/tp.exe" -DestinationPath dist/tp-agent-windows-x64.zip -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-agent-windows-x64
+          path: dist/tp-agent-windows-x64.zip
+          if-no-files-found: error
+
   release:
     name: publish release
-    needs: build
+    needs: [build, build-windows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
