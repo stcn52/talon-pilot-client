@@ -7,10 +7,22 @@
 $ErrorActionPreference = "Stop"
 
 $releaseBase = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_BASE)) { "https://x.xgit.pro/st52/agents" } else { $env:TP_AGENT_RELEASE_BASE }
+$releaseApi = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_API)) { "https://x.xgit.pro/api/v1/repos/st52/agents" } else { $env:TP_AGENT_RELEASE_API }
 $apiBase = if ([string]::IsNullOrWhiteSpace($env:TP_API_BASE)) { "https://agents.xgit.pro" } else { $env:TP_API_BASE }
 $webBase = if ([string]::IsNullOrWhiteSpace($env:TP_WEB_BASE)) { $apiBase } else { $env:TP_WEB_BASE }
 $asset = "tp-agent-windows-x64.zip"
-$url = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_ASSET_URL)) { "$releaseBase/releases/latest/download/$asset" } else { $env:TP_AGENT_ASSET_URL }
+if (-not [string]::IsNullOrWhiteSpace($env:TP_AGENT_ASSET_URL)) {
+  $url = $env:TP_AGENT_ASSET_URL
+} elseif (-not [string]::IsNullOrWhiteSpace($env:TP_AGENT_VERSION)) {
+  $url = "$releaseBase/releases/download/$($env:TP_AGENT_VERSION)/$asset"
+} else {
+  $rel = Invoke-RestMethod -Uri "$releaseApi/releases/latest"
+  $match = @($rel.assets | Where-Object { $_.name -eq $asset })
+  if ($match.Count -lt 1 -or [string]::IsNullOrWhiteSpace($match[0].browser_download_url)) {
+    throw "无法解析最新 Release,请检查 $releaseBase"
+  }
+  $url = $match[0].browser_download_url
+}
 
 $tmp = Join-Path $env:TEMP ("tp-agent-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Force -Path $tmp | Out-Null

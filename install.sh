@@ -8,6 +8,7 @@
 set -e
 
 RELEASE_BASE="${TP_AGENT_RELEASE_BASE:-https://x.xgit.pro/st52/agents}"
+RELEASE_API="${TP_AGENT_RELEASE_API:-https://x.xgit.pro/api/v1/repos/st52/agents}"
 API_BASE="${TP_API_BASE:-https://agents.xgit.pro}"
 WEB_BASE="${TP_WEB_BASE:-$API_BASE}"
 OS="$(uname -s)"
@@ -28,7 +29,19 @@ case "${OS}-${ARCH}" in
   *) echo "${C_YELLOW}不支持的平台: ${OS}-${ARCH}${C_RESET}(目前支持 macOS arm64/x64、Linux x64)" >&2; exit 1 ;;
 esac
 
-URL="${TP_AGENT_ASSET_URL:-${RELEASE_BASE}/releases/latest/download/${ASSET}}"
+if [ -n "${TP_AGENT_ASSET_URL:-}" ]; then
+  URL="$TP_AGENT_ASSET_URL"
+elif [ -n "${TP_AGENT_VERSION:-}" ]; then
+  URL="${RELEASE_BASE}/releases/download/${TP_AGENT_VERSION}/${ASSET}"
+else
+  # Gitea 没有 GitHub 的 /releases/latest/download/ 快捷路径,先查公开 API。
+  URL="$(curl -fsSL "${RELEASE_API}/releases/latest" 2>/dev/null \
+    | grep -o "https://[^\"\\\\]*${ASSET}" | head -n 1 || true)"
+  if [ -z "$URL" ]; then
+    echo "${C_YELLOW}无法解析最新 Release,请检查 ${RELEASE_BASE}${C_RESET}" >&2
+    exit 1
+  fi
+fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
