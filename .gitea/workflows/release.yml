@@ -1,0 +1,167 @@
+name: build-tp-agent
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "st52/talon-pilot ref (dry build only)"
+        default: main
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.asset }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            rust_target: x86_64-unknown-linux-gnu
+            asset: linux-x64
+            shim: true
+          - runner: macos-14
+            rust_target: aarch64-apple-darwin
+            asset: macos-arm64
+            shim: false
+          - runner: macos-14
+            rust_target: x86_64-apple-darwin
+            asset: macos-x64
+            shim: false
+          - runner: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            asset: windows-x64
+            shim: false
+    runs-on: ${{ matrix.runner }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout release repository
+        uses: actions/checkout@v4
+
+      - name: Checkout st52 sources
+        env:
+          XGIT_TOKEN: ${{ secrets.XGIT_TOKEN }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          SOURCE_REF="${SOURCE_REF:-main}"
+          auth="https://oauth2:${XGIT_TOKEN}@x.xgit.pro/st52"
+          git clone --depth 1 --branch "$SOURCE_REF" "$auth/talon-pilot.git" build/talon-pilot
+          git clone --depth 1 "$auth/talon-bin.git" build/talon-bin
+          git clone --depth 1 "$auth/talon-sandbox-sdk-rust.git" build/talon-sandbox-sdk-rust
+          rm -rf build/talon-bin/talon-bundle build/talon-bin/talon-bundle-evocore
+
+      - name: Verify release source and version
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          XGIT_TOKEN: ${{ secrets.XGIT_TOKEN }}
+        run: |
+          set -euo pipefail
+          expected_version="${GITHUB_REF_NAME#v}"
+          actual_version=$(sed -n '/^\[workspace.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' \
+            build/talon-pilot/Cargo.toml | head -n 1)
+          test "$actual_version" = "$expected_version" || {
+            echo "::error::tag $GITHUB_REF_NAME != talon-pilot workspace $actual_version"; exit 1;
+          }
+          source_head=$(git -C build/talon-pilot rev-parse HEAD)
+          remote_head=$(git ls-remote \
+            "https://oauth2:${XGIT_TOKEN}@x.xgit.pro/st52/talon-pilot.git" refs/heads/main | awk '{print $1}')
+          test "$source_head" = "$remote_head" || {
+            echo "::error::build source is not st52/talon-pilot main HEAD"; exit 1;
+          }
+          ! grep -En 'darkmice/talon-pilot-client|api\.github\.com/repos/darkmice' \
+            build/talon-pilot/crates/pilot-edge/src/updater.rs
+
+      - name: Rewrite sibling talon-sys path
+        run: |
+          perl -i -pe 's{path\s*=\s*"/Users/[^"]*/talon-bin/talon-sys"}{path = "../../../talon-bin/talon-sys"}' \
+            build/talon-pilot/crates/pilot-storage/Cargo.toml
+          grep talon-sys build/talon-pilot/crates/pilot-storage/Cargo.toml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: build/talon-pilot
+
+      - name: Build Linux binaries
+        if: matrix.shim
+        run: |
+          set -euo pipefail
+          cc -c -fPIC -O2 scripts/glibc23-shim.c -o /tmp/glibc23-shim.o
+          cd build/talon-pilot
+          for bin in tp-agent tp; do
+            cargo rustc -p pilot-agent --release --target ${{ matrix.rust_target }} --bin "$bin" -- \
+              -Clink-arg=/tmp/glibc23-shim.o -Clink-arg=-Wl,--allow-multiple-definition
+          done
+
+      - name: Build macOS and Windows binaries
+        if: ${{ !matrix.shim }}
+        run: |
+          set -euo pipefail
+          cd build/talon-pilot
+          if [ "${{ runner.os }}" = Windows ]; then
+            for bin in tp-agent tp; do
+              cargo rustc -p pilot-agent --release --target ${{ matrix.rust_target }} --bin "$bin" -- \
+                -Clink-arg=/FORCE:MULTIPLE
+            done
+          else
+            cargo build -p pilot-agent --release --target ${{ matrix.rust_target }} --bin tp-agent --bin tp
+          fi
+
+      - name: Verify and package
+        run: |
+          set -euo pipefail
+          out="build/talon-pilot/target/${{ matrix.rust_target }}/release"
+          mkdir -p dist
+          if [ "${{ runner.os }}" = Windows ]; then
+            test -s "$out/tp-agent.exe" && test -s "$out/tp.exe"
+            7z a "dist/tp-agent-${{ matrix.asset }}.zip" "$out/tp-agent.exe" "$out/tp.exe"
+          else
+            test -s "$out/tp-agent" && test -s "$out/tp"
+            "$out/tp-agent" --version | grep -F "${GITHUB_REF_NAME#v}"
+            "$out/tp" --version | grep -F "${GITHUB_REF_NAME#v}"
+            tar -czf "dist/tp-agent-${{ matrix.asset }}.tar.gz" -C "$out" tp-agent tp
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-agent-${{ matrix.asset }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Verify complete asset set
+        run: |
+          set -euo pipefail
+          for asset in \
+            tp-agent-linux-x64.tar.gz \
+            tp-agent-macos-arm64.tar.gz \
+            tp-agent-macos-x64.tar.gz \
+            tp-agent-windows-x64.zip; do
+            test -s "dist/$asset" || { echo "::error::missing $asset"; exit 1; }
+          done
+      - name: Publish st52/agents Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
