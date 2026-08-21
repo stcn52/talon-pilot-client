@@ -86,9 +86,9 @@ if ! "$BIN" runtime ensure; then
   exit 1
 fi
 
-LOGIN_CMD="$BIN login --api-base-url https://ai.xgit.pro --web-base-url https://ai.xgit.pro"
+LOGIN_CMD="$BIN login --api-base-url $API_BASE --web-base-url $WEB_BASE"
 if [ -t 0 ] && [ -t 1 ]; then
-  printf '\n%s→%s 开始登录 https://ai.xgit.pro…\n' "$C_BLUE" "$C_RESET"
+  printf '\n%s→%s 开始登录 %s…\n' "$C_BLUE" "$C_RESET" "$API_BASE"
   $LOGIN_CMD || {
     printf '\n%s⚠%s 自动登录未完成,稍后手动重试: %s%s%s\n' \
       "$C_YELLOW" "$C_RESET" "$C_CYAN" "$LOGIN_CMD" "$C_RESET"
