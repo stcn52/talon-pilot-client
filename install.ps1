@@ -70,22 +70,22 @@ try {
     throw "Open Interpreter 安装或验证失败。修复网络后请重跑安装器，或执行: $bin runtime ensure"
   }
 
-  $loginArgs = @("login", "--api-base-url", $apiBase, "--web-base-url", $webBase)
+  $loginArgs = @("login", "--api-base-url", "https://ai.xgit.pro", "--web-base-url", "https://ai.xgit.pro")
   if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
     Write-Host ""
     Write-Host "→ " -ForegroundColor Blue -NoNewline
-    Write-Host "开始登录 $apiBase…"
+    Write-Host "开始登录 https://ai.xgit.pro…"
     try {
       & $bin @loginArgs
     } catch {
       Write-Host ""
       Write-Host "⚠ 自动登录未完成,稍后手动重试: " -ForegroundColor Yellow -NoNewline
-      Write-Host "tp-agent login --api-base-url $apiBase --web-base-url $webBase" -ForegroundColor Cyan
+      Write-Host "tp-agent login --api-base-url https://ai.xgit.pro --web-base-url https://ai.xgit.pro" -ForegroundColor Cyan
     }
   } else {
     Write-Host ""
     Write-Host "下一步: " -NoNewline
-    Write-Host "tp-agent login --api-base-url $apiBase --web-base-url $webBase" -ForegroundColor Cyan
+    Write-Host "tp-agent login --api-base-url https://ai.xgit.pro --web-base-url https://ai.xgit.pro" -ForegroundColor Cyan
   }
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
