@@ -58,8 +58,8 @@ jobs:
           auth="https://oauth2:${XGIT_TOKEN}@x.xgit.pro/st52"
           git clone --filter=blob:none "$auth/talon-pilot.git" build/talon-pilot
           git -C build/talon-pilot checkout --detach "$SOURCE_REF"
-          git clone --depth 1 "$auth/talon-bin.git" build/talon-bin
-          git clone --depth 1 "$auth/talon-sandbox-sdk-rust.git" build/talon-sandbox-sdk-rust
+          git clone --depth 1 https://github.com/darkmice/talon-bin.git build/talon-bin
+          git clone --depth 1 https://github.com/talon-org/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
           rm -rf build/talon-bin/talon-bundle build/talon-bin/talon-bundle-evocore
 
       - name: Verify release source and version
@@ -171,8 +171,8 @@ jobs:
           $auth = "https://oauth2:$env:XGIT_TOKEN@x.xgit.pro/st52"
           git clone --filter=blob:none "$auth/talon-pilot.git" build/talon-pilot
           git -C build/talon-pilot checkout --detach $env:SOURCE_REF
-          git clone --depth 1 "$auth/talon-bin.git" build/talon-bin
-          git clone --depth 1 "$auth/talon-sandbox-sdk-rust.git" build/talon-sandbox-sdk-rust
+          git clone --depth 1 https://github.com/darkmice/talon-bin.git build/talon-bin
+          git clone --depth 1 https://github.com/talon-org/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
           Remove-Item -Recurse -Force build/talon-bin/talon-bundle, build/talon-bin/talon-bundle-evocore -ErrorAction SilentlyContinue
 
       - name: Verify release source and version
