@@ -22,14 +22,17 @@ jobs:
           - runner: ubuntu-22.04
             rust_target: x86_64-unknown-linux-gnu
             asset: linux-x64
+            talon_suffix: linux-amd64
             shim: true
           - runner: macos-14
             rust_target: aarch64-apple-darwin
             asset: macos-arm64
+            talon_suffix: macos-arm64
             shim: false
           - runner: macos-14
             rust_target: x86_64-apple-darwin
             asset: macos-x64
+            talon_suffix: macos-amd64
             shim: false
     runs-on: ${{ matrix.runner }}
     defaults:
@@ -60,6 +63,12 @@ jobs:
           git -C build/talon-pilot checkout --detach "$SOURCE_REF"
           git clone --depth 1 https://github.com/stcn52/talon-bin.git build/talon-bin
           git clone --depth 1 https://github.com/stcn52/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
+          talon_source=$(tr -d '\r\n' < build/talon-bin/.talon-source)
+          [[ "$talon_source" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::invalid talon-bin/.talon-source"; exit 1;
+          }
+          git clone --filter=blob:none "$auth/talon.git" build/talon-core
+          git -C build/talon-core checkout --detach "$talon_source"
           rm -rf build/talon-bin/talon-bundle build/talon-bin/talon-bundle-evocore
 
       - name: Verify release source and version
@@ -98,12 +107,19 @@ jobs:
         with:
           workspaces: build/talon-pilot
 
+      - name: Build Talon Core native library
+        working-directory: build/talon-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: cargo build --release --lib --target ${{ matrix.rust_target }}
+
       - name: Build Linux binaries
         if: matrix.shim
         run: |
           set -euo pipefail
           cc -c -fPIC -O2 scripts/glibc23-shim.c -o /tmp/glibc23-shim.o
           cd build/talon-pilot
+          export TALON_LIB_DIR="$GITHUB_WORKSPACE/build/talon-core/target/${{ matrix.rust_target }}/release"
           for bin in tp-agent tp; do
             cargo rustc -p pilot-agent --release --target ${{ matrix.rust_target }} --bin "$bin" -- \
               -Clink-arg=/tmp/glibc23-shim.o -Clink-arg=-Wl,--allow-multiple-definition
@@ -114,6 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           cd build/talon-pilot
+          export TALON_LIB_DIR="$GITHUB_WORKSPACE/build/talon-core/target/${{ matrix.rust_target }}/release"
           cargo build -p pilot-agent --release --target ${{ matrix.rust_target }} --bin tp-agent --bin tp
 
       - name: Verify and package
@@ -133,6 +150,24 @@ jobs:
         with:
           name: tp-agent-${{ matrix.asset }}
           path: dist/*
+          if-no-files-found: error
+
+      - name: Package Talon Core native library
+        run: |
+          set -euo pipefail
+          out="build/talon-core/target/${{ matrix.rust_target }}/release"
+          mkdir -p dist-native
+          cp "$out/libtalon.a" dist-native/
+          if test -s "$out/libtalon.dylib"; then cp "$out/libtalon.dylib" dist-native/; fi
+          if test -s "$out/libtalon.so"; then cp "$out/libtalon.so" dist-native/; fi
+          cp build/talon-core/include/talon.h dist-native/
+          tar -czf "libtalon-${{ matrix.talon_suffix }}.tar.gz" -C dist-native .
+
+      - name: Upload Talon Core artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libtalon-${{ matrix.talon_suffix }}
+          path: libtalon-${{ matrix.talon_suffix }}.tar.gz
           if-no-files-found: error
 
   build-windows:
@@ -173,6 +208,10 @@ jobs:
           git -C build/talon-pilot checkout --detach $env:SOURCE_REF
           git clone --depth 1 https://github.com/stcn52/talon-bin.git build/talon-bin
           git clone --depth 1 https://github.com/stcn52/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
+          $talonSource = (Get-Content build/talon-bin/.talon-source -Raw).Trim()
+          if ($talonSource -notmatch '^[0-9a-f]{40}$') { throw "invalid talon-bin/.talon-source" }
+          git clone --filter=blob:none "$auth/talon.git" build/talon-core
+          git -C build/talon-core checkout --detach $talonSource
           Remove-Item -Recurse -Force build/talon-bin/talon-bundle, build/talon-bin/talon-bundle-evocore -ErrorAction SilentlyContinue
 
       - name: Verify release source and version
@@ -215,10 +254,20 @@ jobs:
         with:
           workspaces: build/talon-pilot
 
+      - name: Build Talon Core native library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          Push-Location build/talon-core
+          cargo build --release --lib --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw "Talon Core build failed" }
+          Pop-Location
+
       - name: Build Windows binaries
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
+          $env:TALON_LIB_DIR = (Resolve-Path "build/talon-core/target/x86_64-pc-windows-msvc/release").Path
           Push-Location build/talon-pilot
           foreach ($bin in @("tp-agent", "tp")) {
             cargo rustc -p pilot-agent --release --target x86_64-pc-windows-msvc --bin $bin -- -Clink-arg=/FORCE:MULTIPLE
@@ -249,6 +298,25 @@ jobs:
           path: dist/tp-agent-windows-x64.zip
           if-no-files-found: error
 
+      - name: Package Talon Core native library
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $out = "build/talon-core/target/x86_64-pc-windows-msvc/release"
+          New-Item -ItemType Directory -Force dist-native | Out-Null
+          Copy-Item "$out/talon.lib" dist-native/talon.lib
+          if (Test-Path "$out/talon.dll") { Copy-Item "$out/talon.dll" dist-native/talon.dll }
+          Copy-Item build/talon-core/include/talon.h dist-native/talon.h
+          tar -czf libtalon-windows-amd64.tar.gz -C dist-native .
+          if ($LASTEXITCODE -ne 0) { throw "native archive failed" }
+
+      - name: Upload Talon Core artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: libtalon-windows-amd64
+          path: libtalon-windows-amd64.tar.gz
+          if-no-files-found: error
+
   release:
     name: publish release
     needs: [build, build-windows]
@@ -258,6 +326,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          pattern: tp-agent-*
           merge-multiple: true
       - name: Verify complete asset set
         run: |
