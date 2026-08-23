@@ -22,7 +22,7 @@ jobs:
       - name: Checkout release repository
         uses: actions/checkout@v4
 
-      - name: Checkout pinned st52 sources
+      - name: Checkout st52 sources
         env:
           XGIT_TOKEN: ${{ secrets.XGIT_TOKEN }}
           SOURCE_REF: ${{ inputs.source_ref }}
@@ -36,12 +36,6 @@ jobs:
           git -C build/talon-pilot checkout --detach "$SOURCE_REF"
           git clone --depth 1 https://github.com/stcn52/talon-bin.git build/talon-bin
           git clone --depth 1 https://github.com/stcn52/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
-          talon_source=$(tr -d '\r\n' < build/talon-bin/.talon-source)
-          [[ "$talon_source" =~ ^[0-9a-f]{40}$ ]] || {
-            echo "::error::invalid talon-bin/.talon-source"; exit 1;
-          }
-          git clone --filter=blob:none "$auth/talon.git" build/talon-core
-          git -C build/talon-core checkout --detach "$talon_source"
           rm -rf build/talon-bin/talon-bundle build/talon-bin/talon-bundle-evocore
 
       - name: Resolve package metadata
@@ -75,17 +69,12 @@ jobs:
         with:
           workspaces: build/talon-pilot
 
-      - name: Build Talon Core native library
-        working-directory: build/talon-core
-        env:
-          MACOSX_DEPLOYMENT_TARGET: "11.0"
-        run: cargo build --release --lib --target aarch64-apple-darwin
-
       - name: Build tp-agent and tp
         run: |
           set -euo pipefail
           cd build/talon-pilot
-          export TALON_LIB_DIR="$GITHUB_WORKSPACE/build/talon-core/target/aarch64-apple-darwin/release"
+          # talon-sys downloads the version-matched ARM64 library from the
+          # public stcn52/talon-bin Release, avoiding a Talon Core cold build.
           cargo build -p pilot-agent --release --target aarch64-apple-darwin --bin tp-agent --bin tp
 
       - name: Verify and package
