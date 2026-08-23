@@ -25,5 +25,5 @@ workspace 版本不一致的发布，且四个资产
 未全部生成时不会创建 Release。
 
 仓库 Actions 需要 `XGIT_TOKEN` secret，其账号至少对
-`st52/talon-pilot` 有只读权限。`talon-bin` 和
-`talon-sandbox-sdk-rust` 从公开 GitHub 上游读取。
+`st52/talon-pilot` 有只读权限。构建依赖从
+`stcn52/talon-bin` 和 `stcn52/talon-sandbox-sdk-rust` 读取。
