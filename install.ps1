@@ -1,13 +1,13 @@
 # Talon Pilot · tp-agent 一键安装(Windows / PowerShell)。
-#   irm https://agents.xgit.pro/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/stcn52/talon-pilot-client/main/install.ps1 | iex
 #
-# 从公开仓 https://x.xgit.pro/st52/agents 的 Release 下 tp-agent + tp,
+# 从公开仓 https://github.com/stcn52/talon-pilot-client 的 Release 下 tp-agent + tp,
 # 装进用户目录并加入 PATH,随后准备默认 Open Interpreter runtime,
 # 最后在可交互终端里登录到本站。
 $ErrorActionPreference = "Stop"
 
-$releaseBase = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_BASE)) { "https://x.xgit.pro/st52/agents" } else { $env:TP_AGENT_RELEASE_BASE }
-$releaseApi = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_API)) { "https://x.xgit.pro/api/v1/repos/st52/agents" } else { $env:TP_AGENT_RELEASE_API }
+$releaseBase = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_BASE)) { "https://github.com/stcn52/talon-pilot-client" } else { $env:TP_AGENT_RELEASE_BASE }
+$releaseApi = if ([string]::IsNullOrWhiteSpace($env:TP_AGENT_RELEASE_API)) { "https://api.github.com/repos/stcn52/talon-pilot-client" } else { $env:TP_AGENT_RELEASE_API }
 $apiBase = if ([string]::IsNullOrWhiteSpace($env:TP_API_BASE)) { "https://ai.xgit.pro" } else { $env:TP_API_BASE }
 $webBase = if ([string]::IsNullOrWhiteSpace($env:TP_WEB_BASE)) { $apiBase } else { $env:TP_WEB_BASE }
 $asset = "tp-agent-windows-x64.zip"

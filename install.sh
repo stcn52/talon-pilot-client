@@ -1,14 +1,14 @@
 #!/bin/sh
 # Talon Pilot · tp-agent 一键安装(macOS / Linux)。
-#   curl -fsSL https://agents.xgit.pro/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/stcn52/talon-pilot-client/main/install.sh | sh
 #
-# 从公开仓 https://x.xgit.pro/st52/agents 的 Release 下对应平台的
+# 从公开仓 https://github.com/stcn52/talon-pilot-client 的 Release 下对应平台的
 # tp-agent + 控制面辅助命令 tp 装进 PATH,随后自动准备默认的
 # Open Interpreter runtime,最后在可交互终端里登录到本站。
 set -e
 
-RELEASE_BASE="${TP_AGENT_RELEASE_BASE:-https://x.xgit.pro/st52/agents}"
-RELEASE_API="${TP_AGENT_RELEASE_API:-https://x.xgit.pro/api/v1/repos/st52/agents}"
+RELEASE_BASE="${TP_AGENT_RELEASE_BASE:-https://github.com/stcn52/talon-pilot-client}"
+RELEASE_API="${TP_AGENT_RELEASE_API:-https://api.github.com/repos/stcn52/talon-pilot-client}"
 API_BASE="${TP_API_BASE:-https://ai.xgit.pro}"
 WEB_BASE="${TP_WEB_BASE:-$API_BASE}"
 OS="$(uname -s)"
@@ -34,7 +34,7 @@ if [ -n "${TP_AGENT_ASSET_URL:-}" ]; then
 elif [ -n "${TP_AGENT_VERSION:-}" ]; then
   URL="${RELEASE_BASE}/releases/download/${TP_AGENT_VERSION}/${ASSET}"
 else
-  # Gitea 没有 GitHub 的 /releases/latest/download/ 快捷路径,先查公开 API。
+  # 查公开 API，避免依赖重定向后的最终 tag。
   URL="$(curl -fsSL "${RELEASE_API}/releases/latest" 2>/dev/null \
     | grep -o "https://[^\"\\\\]*${ASSET}" | head -n 1 || true)"
   if [ -z "$URL" ]; then

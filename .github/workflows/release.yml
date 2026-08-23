@@ -10,8 +10,7 @@ on:
         default: main
 
 permissions:
-  code: read
-  releases: write
+  contents: write
 
 jobs:
   build:
