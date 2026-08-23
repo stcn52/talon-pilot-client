@@ -18,6 +18,9 @@ Release 资产由 GitHub Actions 构建并保存在本仓 `/releases`。
 
 ## 发布
 
+默认发布策略是下面的 **macOS ARM64 快速测试版**。只有明确要求全平台或稳定版时，
+才向本仓推送 `vX.Y.Z` tag 并等待四个平台全部完成。
+
 向本仓推送 `vX.Y.Z` tag 会触发 GitHub Actions，从
 `.talon-pilot-source` 锁定的 `st52/talon-pilot` 源码提交构建
 Linux x64、macOS arm64/x64 和 Windows x64。流水线会拒绝 tag 版本与主仓
