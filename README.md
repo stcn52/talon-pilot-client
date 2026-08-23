@@ -27,3 +27,19 @@ workspace 版本不一致的发布，且四个资产
 仓库 Actions 需要 `XGIT_TOKEN` secret，其账号至少对
 `st52/talon-pilot` 有只读权限。构建依赖从
 `stcn52/talon-bin` 和 `stcn52/talon-sandbox-sdk-rust` 读取。
+
+## macOS ARM64 快速测试版
+
+在 Actions 中手动运行 `release-tp-agent-macos-arm64`，填写要测试的
+`st52/talon-pilot` branch、tag 或 commit SHA。该流程只构建 Apple Silicon，
+完成后自动创建 `macos-arm64-v<版本>.<run number>` Pre-release，并附带
+`tp-agent-macos-arm64.tar.gz` 与 SHA256 文件；它不会改变稳定版 `vX.Y.Z`
+或线上升级指针。
+
+也可以用 GitHub CLI 触发：
+
+```bash
+gh workflow run release-macos-arm64.yml \
+  --repo stcn52/talon-pilot-client \
+  -f source_ref=<branch-tag-or-sha>
+```
