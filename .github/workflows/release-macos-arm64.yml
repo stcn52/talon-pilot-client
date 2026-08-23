@@ -98,7 +98,7 @@ jobs:
           test "$("$out/tp" --version)" = "tp $EXPECTED_VERSION"
           mkdir -p dist
           tar -czf dist/tp-agent-macos-arm64.tar.gz -C "$out" tp-agent tp
-          shasum -a 256 dist/tp-agent-macos-arm64.tar.gz > dist/SHA256SUMS-macos-arm64.txt
+          (cd dist && shasum -a 256 tp-agent-macos-arm64.tar.gz > SHA256SUMS-macos-arm64.txt)
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
