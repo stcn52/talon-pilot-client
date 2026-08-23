@@ -1,0 +1,122 @@
+name: release-tp-agent-macos-arm64
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: "st52/talon-pilot ref or SHA"
+        required: true
+        default: main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-publish:
+    name: build and publish (macos-arm64)
+    runs-on: macos-14
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout release repository
+        uses: actions/checkout@v4
+
+      - name: Checkout pinned st52 sources
+        env:
+          XGIT_TOKEN: ${{ secrets.XGIT_TOKEN }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+        run: |
+          set -euo pipefail
+          test -n "$XGIT_TOKEN" || {
+            echo "::error::XGIT_TOKEN Actions secret is not configured"; exit 1;
+          }
+          auth="https://oauth2:${XGIT_TOKEN}@x.xgit.pro/st52"
+          git clone --filter=blob:none "$auth/talon-pilot.git" build/talon-pilot
+          git -C build/talon-pilot checkout --detach "$SOURCE_REF"
+          git clone --depth 1 https://github.com/stcn52/talon-bin.git build/talon-bin
+          git clone --depth 1 https://github.com/stcn52/talon-sandbox-sdk-rust.git build/talon-sandbox-sdk-rust
+          talon_source=$(tr -d '\r\n' < build/talon-bin/.talon-source)
+          [[ "$talon_source" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "::error::invalid talon-bin/.talon-source"; exit 1;
+          }
+          git clone --filter=blob:none "$auth/talon.git" build/talon-core
+          git -C build/talon-core checkout --detach "$talon_source"
+          rm -rf build/talon-bin/talon-bundle build/talon-bin/talon-bundle-evocore
+
+      - name: Resolve package metadata
+        id: package
+        run: |
+          set -euo pipefail
+          version=$(sed -n '/^\[workspace.package\]/,/^\[/ s/^version = "\([^"]*\)"/\1/p' \
+            build/talon-pilot/Cargo.toml | head -n 1)
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::invalid workspace version: $version"; exit 1;
+          }
+          source_sha=$(git -C build/talon-pilot rev-parse --short=12 HEAD)
+          tag="macos-arm64-v${version}.${GITHUB_RUN_NUMBER}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite sibling talon-sys path
+        run: |
+          perl -i -pe 's{path\s*=\s*"/Users/[^"]*/talon-bin/talon-sys"}{path = "../../../talon-bin/talon-sys"}' \
+            build/talon-pilot/crates/pilot-storage/Cargo.toml
+          grep talon-sys build/talon-pilot/crates/pilot-storage/Cargo.toml
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: build/talon-pilot
+
+      - name: Build Talon Core native library
+        working-directory: build/talon-core
+        env:
+          MACOSX_DEPLOYMENT_TARGET: "11.0"
+        run: cargo build --release --lib --target aarch64-apple-darwin
+
+      - name: Build tp-agent and tp
+        run: |
+          set -euo pipefail
+          cd build/talon-pilot
+          export TALON_LIB_DIR="$GITHUB_WORKSPACE/build/talon-core/target/aarch64-apple-darwin/release"
+          cargo build -p pilot-agent --release --target aarch64-apple-darwin --bin tp-agent --bin tp
+
+      - name: Verify and package
+        env:
+          EXPECTED_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          out=build/talon-pilot/target/aarch64-apple-darwin/release
+          test "$("$out/tp-agent" --version)" = "$EXPECTED_VERSION"
+          test "$("$out/tp" --version)" = "tp $EXPECTED_VERSION"
+          mkdir -p dist
+          tar -czf dist/tp-agent-macos-arm64.tar.gz -C "$out" tp-agent tp
+          shasum -a 256 dist/tp-agent-macos-arm64.tar.gz > dist/SHA256SUMS-macos-arm64.txt
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tp-agent-macos-arm64-${{ steps.package.outputs.source_sha }}
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publish macOS ARM64 pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package.outputs.tag }}
+          name: "tp-agent ${{ steps.package.outputs.version }} · macOS ARM64 test"
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Apple Silicon fast-test build.
+
+            Talon Pilot source: `${{ steps.package.outputs.source_sha }}`
+            Stable cross-platform releases continue to use `vX.Y.Z` tags.
+          files: dist/*
