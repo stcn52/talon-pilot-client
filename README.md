@@ -19,7 +19,7 @@ Release 资产由 GitHub Actions 构建并保存在本仓 `/releases`。
 ## 发布
 
 向本仓推送 `vX.Y.Z` tag 会触发 GitHub Actions，从
-tag 注释中 `talon-pilot=<commit SHA>` 锁定的 `st52/talon-pilot` 源码构建
+`.talon-pilot-source` 锁定的 `st52/talon-pilot` 源码提交构建
 Linux x64、macOS arm64/x64 和 Windows x64。流水线会拒绝 tag 版本与主仓
 workspace 版本不一致的发布，且四个资产
 未全部生成时不会创建 Release。

@@ -48,10 +48,9 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            SOURCE_REF=$(git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' \
-              | sed -n 's/^talon-pilot=\([0-9a-f]\{40\}\)$/\1/p' | head -n 1)
+            SOURCE_REF=$(tr -d '\r\n' < .talon-pilot-source)
             [[ "$SOURCE_REF" =~ ^[0-9a-f]{40}$ ]] || {
-              echo "::error::annotated tag must contain talon-pilot=<40-char SHA>"; exit 1;
+              echo "::error::.talon-pilot-source must contain one 40-char SHA"; exit 1;
             }
           else
             SOURCE_REF="${SOURCE_REF:-main}"
@@ -76,8 +75,7 @@ jobs:
             echo "::error::tag $GITHUB_REF_NAME != talon-pilot workspace $actual_version"; exit 1;
           }
           source_head=$(git -C build/talon-pilot rev-parse HEAD)
-          tag_source=$(git for-each-ref "refs/tags/$GITHUB_REF_NAME" --format='%(contents)' \
-            | sed -n 's/^talon-pilot=\([0-9a-f]\{40\}\)$/\1/p' | head -n 1)
+          tag_source=$(tr -d '\r\n' < .talon-pilot-source)
           test "$source_head" = "$tag_source" || {
             echo "::error::build source does not match annotated tag SHA"; exit 1;
           }
@@ -154,12 +152,10 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           if ($env:GITHUB_REF -like "refs/tags/v*") {
-            $message = git for-each-ref "refs/tags/$env:GITHUB_REF_NAME" --format="%(contents)"
-            $match = [regex]::Match(($message -join "`n"), '(?m)^talon-pilot=([0-9a-f]{40})$')
-            if (-not $match.Success) {
-              throw "annotated tag must contain talon-pilot=<40-char SHA>"
+            $sourceRef = (Get-Content .talon-pilot-source -Raw).Trim()
+            if ($sourceRef -notmatch '^[0-9a-f]{40}$') {
+              throw ".talon-pilot-source must contain one 40-char SHA"
             }
-            $sourceRef = $match.Groups[1].Value
           } else {
             $sourceRef = if ([string]::IsNullOrWhiteSpace($env:SOURCE_REF)) { "main" } else { $env:SOURCE_REF }
           }
