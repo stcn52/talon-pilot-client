@@ -70,6 +70,10 @@ jobs:
           workspaces: build/talon-pilot
 
       - name: Build tp-agent and tp
+        env:
+          # Compile the immutable GitHub Release identity into tp-agent. The Cargo semver stays
+          # unchanged across quick builds, so heartbeat/update decisions must use this full tag.
+          TP_AGENT_RELEASE_TAG: ${{ steps.package.outputs.tag }}
         run: |
           set -euo pipefail
           cd build/talon-pilot
@@ -80,14 +84,24 @@ jobs:
       - name: Verify and package
         env:
           EXPECTED_VERSION: ${{ steps.package.outputs.version }}
+          RELEASE_TAG: ${{ steps.package.outputs.tag }}
         run: |
           set -euo pipefail
           out=build/talon-pilot/target/aarch64-apple-darwin/release
           test "$("$out/tp-agent" --version)" = "$EXPECTED_VERSION"
           test "$("$out/tp" --version)" = "tp $EXPECTED_VERSION"
+          test "$("$out/tp-agent" version --json | jq -r .release_identity)" = "$RELEASE_TAG"
           mkdir -p dist
           tar -czf dist/tp-agent-macos-arm64.tar.gz -C "$out" tp-agent tp
           (cd dist && shasum -a 256 tp-agent-macos-arm64.tar.gz > SHA256SUMS-macos-arm64.txt)
+          sha256=$(awk '{print $1}' dist/SHA256SUMS-macos-arm64.txt)
+          mkdir -p release-pointer
+          printf '%s\n' \
+            "TP_AGENT_RELEASE_TAG=$RELEASE_TAG" \
+            "TP_AGENT_RELEASE_VERSION=$EXPECTED_VERSION" \
+            "TP_AGENT_RELEASE_URL=https://github.com/${GITHUB_REPOSITORY}/releases/download/$RELEASE_TAG/tp-agent-macos-arm64.tar.gz" \
+            "TP_AGENT_RELEASE_SHA256=$sha256" \
+            > release-pointer/latest-macos-arm64.env
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -109,3 +123,15 @@ jobs:
             Talon Pilot source: `${{ steps.package.outputs.source_sha }}`
             Stable cross-platform releases continue to use `vX.Y.Z` tags.
           files: dist/*
+
+      - name: Publish canonical latest pointer
+        run: |
+          set -euo pipefail
+          mkdir -p releases
+          cp release-pointer/latest-macos-arm64.env releases/latest-macos-arm64.env
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add releases/latest-macos-arm64.env
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update macOS ARM64 release pointer"
+          git push origin HEAD:main
